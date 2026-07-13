@@ -14,10 +14,12 @@ SageAutoman/mediary-scout        (your fork — a pure mirror of upstream)
         │  submodule `src/`
         ▼
 SageAutoman/mediary-scout-image  (this repo)
-   ├── src/                       ← submodule → SageAutoman/mediary-scout
+   ├── src/                        ← submodule → SageAutoman/mediary-scout
+   ├── docker-compose.yml          ← self-host stack; `web` uses the GHCR image
+   ├── deploy/pansou.channels.env  ← PanSou 115/网盘源频道默认配置
    └── .github/workflows/
-       ├── sync-upstream.yml      → mirror upstream→fork, bump submodule, push main
-       └── build-and-push.yml     → on push to main: build multi-platform image → GHCR
+       ├── sync-upstream.yml       → mirror upstream→fork, bump submodule, push main
+       └── build-and-push.yml      → on push to main: build multi-platform image → GHCR
 ```
 
 ## How it works
@@ -33,17 +35,47 @@ SageAutoman/mediary-scout-image  (this repo)
 ## Published image
 
 ```
-ghcr.io/sageautoman/mediary-scout-image:latest
+ghcr.io/sageautoman/mediary-scout-image:latest          # 最新构建
+ghcr.io/sageautoman/mediary-scout-image:sha-<commit>    # 锁定某次构建
 ```
 
-Run it:
+The image is **public** — `docker pull` works without login.
+
+## Self-hosting (full stack)
+
+This repo ships a `docker-compose.yml` that pulls the **prebuilt** `web` image
+(no local build) and wires up Postgres + PanSou. It's adapted from the app
+repo's own `docker-compose.yml`; the only change is `web` uses the GHCR image
+instead of building from source.
+
+```bash
+# 拉取最新镜像并起栈
+docker compose pull
+docker compose up -d
+# 打开 http://<host>:3000 → 设置页扫码连 115 即用
+# 自定义主机端口: WEB_PORT=8080 docker compose up -d
+```
+
+What's included:
+- **postgres** — `postgres:16-alpine`, data in the `pgdata` volume.
+- **pansou** — `ghcr.io/fish2018/pansou-web:latest`, seeded with good 115/网盘源
+  channels from `deploy/pansou.channels.env` (copy it next to the compose file;
+  without it PanSou returns zero 115 shares).
+- **web** — the GHCR image above. Env vars (`MEDIA_TRACK_POSTGRES_URL`,
+  `PANSOU_BASE_URL`, agent/storage adapters, …) are pre-set; tune in `.env`
+  (optional, loaded if present) or the 设置 page.
+- **cloudflared** — optional, off by default; `docker compose --profile tunnel up -d`
+  for a Cloudflare Tunnel (no open ports). Put `TUNNEL_TOKEN` in `.env`.
+
+> The image bakes `MEDIA_TRACK_ALLOWED_ORIGINS` and `GIT_SHA` (as `BUILD_COMMIT`)
+> at build time. To verify the running container serves the expected commit:
+> `docker compose exec web cat BUILD_COMMIT`.
+
+Just the image, no stack:
 
 ```bash
 docker run -p 3000:3000 ghcr.io/sageautoman/mediary-scout-image:latest
 ```
-
-(For a full self-host stack with Postgres + PanSou see the app repo's
-`docker-compose.yml`.)
 
 ## Required GitHub secret
 

@@ -1,0 +1,105 @@
+# media-track 自部署:一把拉起 web(Next + 进程内 worker) / Postgres / PanSou。
+#   docker compose pull && docker compose up -d   →   打开 http://<host>:3000   →   设置页扫码连 115 即用
+# 本仓库的 `web` 直接用 CI 构建好的镜像 ghcr.io/sageautoman/mediary-scout-image，
+# 不需要本地 build（构建在 SageAutoman/mediary-scout-image 的 GitHub Actions 里完成）。
+# 想锁定某次构建就改用 sha-<commit> tag，例如 ghcr.io/sageautoman/mediary-scout-image:sha-ee15fd4。
+# TMDB 经 §1 CF Worker 开箱即用;LLM key / 自己的 TMDB key / Prowlarr 在设置页填。
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mediatrack
+      POSTGRES_USER: mediatrack
+      POSTGRES_PASSWORD: mediatrack
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediatrack -d mediatrack"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  pansou:
+    # From ghcr.io — a Docker Hub registry mirror does NOT cover this. If ghcr is
+    # blocked (mainland China), set PANSOU_IMAGE in .env to a ghcr mirror/proxy.
+    image: ${PANSOU_IMAGE:-ghcr.io/fish2018/pansou-web:latest}
+    # Good channel/plugin defaults (115 + 网盘源 Telegram channels). WITHOUT this,
+    # a fresh pansou-web indexes only magnet channels and returns ZERO 115 shares —
+    # the agent then never sees the good 网盘 4K/REMUX resources. See the file header.
+    env_file:
+      - deploy/pansou.channels.env
+    restart: unless-stopped
+
+  web:
+    # Prebuilt image published by this repo's CI. No local build needed.
+    # The image bakes MEDIA_TRACK_ALLOWED_ORIGINS + GIT_SHA (BUILD_COMMIT) at build time;
+    # override with a sha-<commit> tag to pin a specific release.
+    image: ghcr.io/sageautoman/mediary-scout-image:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pansou:
+        condition: service_started
+    environment:
+      # App self-creates its schema on first query (CREATE TABLE IF NOT EXISTS).
+      MEDIA_TRACK_POSTGRES_URL: postgres://mediatrack:mediatrack@postgres:5432/mediatrack
+      # Bundled PanSou via the compose service name (override per-instance in 设置).
+      PANSOU_BASE_URL: http://pansou
+      MEDIA_TRACK_SEARCH_PROVIDER: tmdb
+      MEDIA_TRACK_WORKFLOW_ADAPTER: pansou
+      MEDIA_TRACK_STORAGE_ADAPTER: "115"
+      # Live trio: pansou + 115 REQUIRE the vercel-ai agent (assertWorkflowAgentAdapterPolicy).
+      # "real" is not a valid value — it fails the policy and the worker can never drain the
+      # queue (获取 stuck "排队", category dirs never provisioned). Must be vercel-ai.
+      MEDIA_TRACK_AGENT_ADAPTER: vercel-ai
+      MEDIA_TRACK_DEMO_SEED: "0"
+      # 可观测性:完整有序的 agent 逐步轨迹始终落 agent_steps 表(psql 即可复盘)。
+      # 额外把每一步打到 stdout(docker compose logs web)是 OPT-IN —— 它会把工具参数
+      # (搜索关键词 / 候选 id / 文件 id)写进容器日志与日志聚合器,默认不开。需要排障时
+      # 在 .env 里设 MEDIA_TRACK_AGENT_LOG=1 自行启用(env_file 已加载 .env)。
+    # Optional overrides (TMDB/115/LLM/Prowlarr/CID). Missing file is fine —
+    # everything has a default or is configured in the 设置 page.
+    env_file:
+      - path: .env
+        required: false
+    # Host port configurable (WEB_PORT) in case 3000 is taken on the host.
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  # Optional public HTTPS via Cloudflare Tunnel (no public IP, no open ports).
+  # Off by default — only starts under `--profile tunnel`.
+  #   1. Create a tunnel in the Cloudflare Zero Trust dashboard, set its public
+  #      hostname's service URL to  http://web:3000  (the compose service name —
+  #      NOT localhost), and copy the connector token.
+  #   2. Put TUNNEL_TOKEN=<token> in .env  (compose reads .env for interpolation).
+  #   3. docker compose --profile tunnel up -d
+  #   4. ⚠️ Put Cloudflare Access in front of the hostname — this app has no login.
+  # See docs/deploy.md → 「方式二:Cloudflare Tunnel」 for the full walkthrough.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+      # Connector transport. Unset/empty → "auto" (cloudflared's own default: prefers
+      # QUIC/UDP, nominally falls back to HTTP/2). We default to the literal "auto" not
+      # "" because cloudflared rejects an empty protocol value ("unknown protocol").
+      # On UDP-blocked/throttled networks auto often doesn't fall back cleanly (tunnel
+      # won't register or keeps dropping) — set TUNNEL_TRANSPORT_PROTOCOL=http2 in .env.
+      TUNNEL_TRANSPORT_PROTOCOL: ${TUNNEL_TRANSPORT_PROTOCOL:-auto}
+    # Lets the connector resolve the Docker host, so a tunnel Public Hostname of
+    # type SSH can point at the host's sshd (host.docker.internal:22) — enabling
+    # SSH-over-tunnel from anywhere without opening a port. Harmless if unused.
+    # ⚠️ A bare SSH Public Hostname is reachable by anyone who knows it — gate it
+    # with Cloudflare Access, or accept key-only auth (no password auth on sshd).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - web
+    restart: unless-stopped
+    profiles:
+      - tunnel
+
+volumes:
+  pgdata:
