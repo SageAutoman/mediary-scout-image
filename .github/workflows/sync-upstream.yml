@@ -1,0 +1,75 @@
+name: Sync Upstream
+
+# Keeps the fork (SageAutoman/mediary-scout) an exact mirror of the upstream
+# (fancydirty/mediary-scout), then bumps the `src` submodule in THIS repo
+# (SageAutoman/mediary-scout-image) to the new fork HEAD.
+#
+# The submodule-bump commit is pushed to `main`, which automatically triggers
+# build-and-push.yml to rebuild & re-publish the Docker image.
+#
+# Requires a repo-scoped Personal Access Token stored as the `PAT` secret
+# (needs `repo` / `contents:write` on BOTH SageAutoman/mediary-scout AND
+# SageAutoman/mediary-scout-image). GITHUB_TOKEN cannot push to a different
+# repository, so a PAT is required here.
+
+on:
+  schedule:
+    # Daily at 03:17 UTC — arbitrary off-peak minute to avoid the :00 storm.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM: https://github.com/fancydirty/mediary-scout.git
+  FORK: https://github.com/SageAutoman/mediary-scout.git
+  FORK_REPO: SageAutoman/mediary-scout
+  IMAGE_REPO: ${{ github.repository }} # SageAutoman/mediary-scout-image
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout image repo (with submodules)
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT }}
+          submodules: true
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Use the PAT for pushing both the fork and this repo.
+          git remote set-url origin "https://x-access-token:${{ secrets.PAT }}@github.com/${{ env.IMAGE_REPO }}.git"
+
+      # --- 1. Mirror upstream -> fork (force, because the fork is a pure mirror) ---
+      - name: Mirror upstream into fork
+        run: |
+          set -euo pipefail
+          UP=$(git ls-remote "$UPSTREAM" refs/heads/main | cut -f1)
+          echo "upstream/main = $UP"
+          # Force-push upstream/main straight into the fork's main. The fork exists
+          # only to host the submodule, so mirroring it exactly to upstream is the
+          # intended behaviour (no fork-specific commits are kept).
+          git push "https://x-access-token:${{ secrets.PAT }}@github.com/${FORK_REPO}.git" "+${UP}:refs/heads/main"
+
+      # --- 2. Bump the `src` submodule to the new fork HEAD, push to main ---
+      - name: Update src submodule
+        run: |
+          set -euo pipefail
+          git submodule update --remote src
+          git add src
+          if git diff --cached --quiet; then
+            echo "src already at fork HEAD — nothing to commit."
+            exit 0
+          fi
+          SHA=$(git -C src rev-parse --short HEAD)
+          git commit -m "chore: sync src -> upstream @ ${SHA}"
+          git push origin HEAD:main
