@@ -53,8 +53,9 @@ docker run -p 3000:3000 ghcr.io/sageautoman/mediary-scout-image:latest
 Settings → Secrets and variables → Actions. `GITHUB_TOKEN` cannot push to a
 different repository, so a PAT is mandatory.
 
-`build-and-push.yml` uses the built-in `GITHUB_TOKEN` (with `packages: write`)
-and needs no extra secret.
+`build-and-push.yml` logs in to GHCR with the **`PAT`** secret (which carries
+`write:packages`); this avoids the 403 you get when a repo's workflow-permission
+policy caps `GITHUB_TOKEN` below `packages: write`.
 
 ## First-time setup (one time, on github.com)
 
