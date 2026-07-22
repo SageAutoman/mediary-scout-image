@@ -4,8 +4,8 @@ name: Sync Upstream
 # (fancydirty/mediary-scout), then bumps the `src` submodule in THIS repo
 # (SageAutoman/mediary-scout-image) to the new fork HEAD.
 #
-# The submodule-bump commit is pushed to `main`, which automatically triggers
-# build-and-push.yml to rebuild & re-publish the Docker image.
+# The submodule-bump commit is pushed to `main` only to record the source SHA.
+# Images are intentionally built only when this repo receives a Git tag.
 #
 # Requires a Personal Access Token stored as the `PAT` secret: classic tokens
 # need `repo` + `workflow`; fine-grained tokens need Contents + Workflows write

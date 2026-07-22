@@ -19,7 +19,7 @@ SageAutoman/mediary-scout-image  (this repo)
    ├── deploy/pansou.channels.env  ← PanSou 115/网盘源频道默认配置
    └── .github/workflows/
        ├── sync-upstream.yml       → mirror upstream→fork, bump submodule, push main
-       └── build-and-push.yml      → on push to main: build multi-platform image → GHCR
+       └── build-and-push.yml      → on Git tag push: build multi-platform image → GHCR
 ```
 
 ## How it works
@@ -27,15 +27,18 @@ SageAutoman/mediary-scout-image  (this repo)
 1. **sync-upstream.yml** runs on a daily schedule (and manually):
    - force-mirrors `fancydirty/mediary-scout` → `SageAutoman/mediary-scout`;
    - bumps the `src` submodule in this repo to the new fork HEAD and pushes to `main`.
-2. The submodule-bump push to `main` triggers **build-and-push.yml**, which:
+2. Pushing a Git tag triggers **build-and-push.yml**, which:
    - checks out with submodules,
    - builds `src/Dockerfile` for `linux/amd64` + `linux/arm64` via Buildx/QEMU,
-   - pushes to `ghcr.io/sageautoman/mediary-scout-image` (`latest`, short-SHA, date tags).
+   - pushes to `ghcr.io/sageautoman/mediary-scout-image` (`latest`, Git tag, short-SHA).
+
+Ordinary `main` pushes, including automated submodule bumps, do not build images.
 
 ## Published image
 
 ```
 ghcr.io/sageautoman/mediary-scout-image:latest          # 最新构建
+ghcr.io/sageautoman/mediary-scout-image:<git-tag>       # 对应发布 tag
 ghcr.io/sageautoman/mediary-scout-image:sha-<commit>    # 锁定某次构建
 ```
 
@@ -103,7 +106,12 @@ there. The `PAT` secret is only used by `sync-upstream.yml` to push to the fork.
    git push -u origin main
    ```
 5. (Optional) Run **Sync Upstream** manually once from the Actions tab to
-   prime the submodule bump and trigger the first image build.
+   prime the submodule bump.
+6. Push a release tag to build and publish the image:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
 
 ## Submodule management
 

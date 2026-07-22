@@ -3,9 +3,8 @@ name: Build and Push Image
 # Builds the media-track (mediary-scout) Docker image from the `src` submodule
 # and pushes multi-platform images to GHCR.
 #
-# Triggers:
-#   - push to `main`  (incl. the submodule-bump commit from sync-upstream.yml)
-#   - manual dispatch
+# Trigger: push any Git tag. Ordinary branch and submodule-bump pushes do not
+# build images.
 #
 # The actual source lives in the `src/` git submodule (SageAutoman/mediary-scout,
 # kept in sync with fancydirty/mediary-scout by sync-upstream.yml). The Docker
@@ -14,8 +13,7 @@ name: Build and Push Image
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    tags: ["*"]
 
 concurrency:
   group: build-and-push-${{ github.ref }}
@@ -62,9 +60,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
+            type=ref,event=tag
             type=sha,format=short
-            type=schedule,pattern={{date 'YYYYMMDD'}}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
