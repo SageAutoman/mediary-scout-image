@@ -7,10 +7,9 @@ name: Sync Upstream
 # The submodule-bump commit is pushed to `main`, which automatically triggers
 # build-and-push.yml to rebuild & re-publish the Docker image.
 #
-# Requires a repo-scoped Personal Access Token stored as the `PAT` secret
-# (needs `repo` / `contents:write` on BOTH SageAutoman/mediary-scout AND
-# SageAutoman/mediary-scout-image). GITHUB_TOKEN cannot push to a different
-# repository, so a PAT is required here.
+# Requires a Personal Access Token stored as the `PAT` secret: classic tokens
+# need `repo` + `workflow`; fine-grained tokens need Contents + Workflows write
+# on BOTH repos. GITHUB_TOKEN cannot push to a different repository.
 
 on:
   schedule:
@@ -53,12 +52,13 @@ jobs:
       - name: Mirror upstream into fork
         run: |
           set -euo pipefail
-          UP=$(git ls-remote "$UPSTREAM" refs/heads/main | cut -f1)
+          git -C src fetch "$UPSTREAM" main
+          UP=$(git -C src rev-parse FETCH_HEAD)
           echo "upstream/main = $UP"
           # Force-push upstream/main straight into the fork's main. The fork exists
           # only to host the submodule, so mirroring it exactly to upstream is the
           # intended behaviour (no fork-specific commits are kept).
-          git push "https://x-access-token:${{ secrets.PAT }}@github.com/${FORK_REPO}.git" "+${UP}:refs/heads/main"
+          git -C src push "https://x-access-token:${{ secrets.PAT }}@github.com/${FORK_REPO}.git" "+${UP}:refs/heads/main"
 
       # --- 2. Bump the `src` submodule to the new fork HEAD, push to main ---
       - name: Update src submodule

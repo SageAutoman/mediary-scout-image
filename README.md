@@ -79,11 +79,11 @@ docker run -p 3000:3000 ghcr.io/sageautoman/mediary-scout-image:latest
 
 ## Required GitHub secret
 
-`sync-upstream.yml` needs a **repo-scoped Personal Access Token** (classic
-`repo`, or fine-grained with write on both `SageAutoman/mediary-scout` and
-`SageAutoman/mediary-scout-image`) stored as the **`PAT`** secret in this repo's
-Settings → Secrets and variables → Actions. `GITHUB_TOKEN` cannot push to a
-different repository, so a PAT is mandatory.
+`sync-upstream.yml` needs a **Personal Access Token** stored as the **`PAT`**
+secret: classic tokens need `repo` + `workflow`; fine-grained tokens need
+Contents + Workflows write access on both `SageAutoman/mediary-scout` and
+`SageAutoman/mediary-scout-image`. `GITHUB_TOKEN` cannot push to a different
+repository, so a PAT is mandatory.
 
 `build-and-push.yml` logs in to GHCR with the built-in **`GITHUB_TOKEN`**
 (the repo's workflow-permission policy is set to `write`, so it carries
